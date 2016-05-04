@@ -5,6 +5,7 @@ import LanguageStructs
 import Lexer
 import System.Environment
 import Control.Monad
+import Control.Applicative ((<*))
 
 pascalParser :: Parser Program
 pascalParser = whiteSpace >> program
@@ -12,7 +13,7 @@ pascalParser = whiteSpace >> program
 program :: Parser Program
 program =
     do functions <- (many (try function))
-       mainF <- main'
+       mainF <- main' <* eof
        return $ Program functions mainF
 
 main' :: Parser Statement
@@ -33,23 +34,21 @@ function =
 
 
 argumentList :: Parser [Arg]
-argumentList = 
-    parens (sepBy argument comma) >>= \list -> return $ list
+argumentList = parens (sepBy argument comma)
 
 argument :: Parser Arg
-argument = reference <|> value
-
-reference :: Parser Arg
-reference = 
-    do reservedOp "&"
-       id <- identifier
-       return $ ERef id
-
-value :: Parser Arg
-value = 
-    do
+argument = 
+    do  t <- typeP
+        ref <- refP
         id <- identifier
-        return $ EVar id
+        return $ EArg t ref id
+
+typeP :: Parser Type
+typeP = 
+    (reserved "int" >> return TInt) <|> (reserved "bool" >> return TBool)
+
+refP :: Parser Bool
+refP = try (reservedOp "&" >> return True) <|> return False
 
 block :: Parser Statement
 block = braces sequenceOfStatement
@@ -62,41 +61,53 @@ sequenceOfStatement =
 statement :: Parser Statement
 statement = ifStatement <|> 
             whileStatement <|> 
-            assignStatement <|>
+            try declareStatement <|>
+            try assignStatement <|>
             callStatement
 
 ifStatement :: Parser Statement
 ifStatement =
   do reserved "if"
-     cond <- lExpression
+     cond <- expression
      statement1 <- block
      try (elseStatement cond statement1) <|> noElse cond statement1
 
-elseStatement :: LExpr -> Statement -> Parser Statement
+elseStatement :: Expr -> Statement -> Parser Statement
 elseStatement cond statement1 =
     do reserved "else"
        statement2 <- block
        return $ SIf cond statement1 (Just statement2)
 
-noElse :: LExpr -> Statement -> Parser Statement
+noElse :: Expr -> Statement -> Parser Statement
 noElse cond statement1 = return $ SIf cond statement1 Nothing
 
  
 whileStatement :: Parser Statement
 whileStatement =
   do reserved "while"
-     cond <- lExpression
-     statement'' <- block
-     return $ SWhile cond statement''
- 
+     cond <- expression
+     statement' <- block
+     return $ SWhile cond statement'
+
 assignStatement :: Parser Statement
 assignStatement =
-  do reserved "var"
+    do var <- identifier
+       reservedOp "="
+       expr <- expression
+       semi
+       return $ SAssign var expr
+ 
+declareStatement :: Parser Statement
+declareStatement =
+  do t <- decType
      var <- identifier
      reservedOp "="
-     expr <- aExpression
+     expr <- expression
      semi
-     return $ SAssign var expr
+     return $ SDeclare t var expr
+
+decType :: Parser Type
+decType = (reserved "int" >> return TInt) <|> (reserved "bool" >> return TBool)
 
 callStatement :: Parser Statement
 callStatement =
@@ -105,35 +116,59 @@ callStatement =
        semi
        return $ SCall id params
 
-parameterList :: Parser [AExpr]
-parameterList =
-    parens (sepBy aExpression comma) >>= \list -> return $ list
+parameterList :: Parser [Expr]
+parameterList = parens (sepBy expression comma)
 
+expression :: Parser Expr
+expression = try aExpression <|> lExpression
 
-aExpression :: Parser AExpr
+aExpression :: Parser Expr
 aExpression = buildExpressionParser aOperators aTerm
 
-aOperators = [ [Infix (reservedOp "*" >> return (EBinOp Times)) AssocLeft,
-                Infix (reservedOp "/" >> return (EBinOp Div)) AssocLeft],
-               [Infix (reservedOp "+" >> return (EBinOp Plus)) AssocLeft,
-                Infix (reservedOp "-" >> return (EBinOp Minus)) AssocLeft]]
+aOperators = [ [Infix (reservedOp "*" >> return (EABinOp Times)) AssocLeft,
+                Infix (reservedOp "/" >> return (EABinOp Div)) AssocLeft],
+               [Infix (reservedOp "+" >> return (EABinOp Plus)) AssocLeft,
+                Infix (reservedOp "-" >> return (EABinOp Minus)) AssocLeft]]
 
-aTerm =  parens aExpression <|> liftM Evar identifier <|> liftM EConst integer
+aTerm =  parens aExpression <|> liftM EIntLit integer <|> liftM EVar identifier
 
-lExpression :: Parser LExpr
-lExpression = buildExpressionParser [] bTerm
+lExpression :: Parser Expr
+lExpression = buildExpressionParser lOperators lTerm
 
-bTerm =  parens lExpression <|> rExpression
+lTerm = try (parens lExpression) <|>
+        (reserved "true" >> return (EBoolLit True)) <|>
+        (reserved "false" >> return (EBoolLit False)) <|>
+        liftM EVar identifier <|>
+        parens rExpression
 
+lOperators = [ [Infix (reservedOp "&&" >> return (ELBinOp And)) AssocLeft,
+                Infix (reservedOp "||" >> return (ELBinOp Or)) AssocLeft]]
+
+{-
+rExpression :: Parser Expr
 rExpression =
-  do a1 <- aExpression
-     op <- relation
-     a2 <- aExpression
-     return $ LExpr op a1 a2
- 
-relation = (reservedOp ">" >> return G) <|> 
-           (reservedOp "<" >> return L) <|>
-           (reservedOp "<=" >> return LE) <|>
-           (reservedOp ">=" >> return GE) <|>
-           (reservedOp "==" >> return Eq) <|>
-           (reservedOp "!=" >> return NEq)
+    do e1 <- expression
+       op <- relation
+       e2 <- expression
+       return $ ERBinOp op e1 e2
+
+relation :: Parser RBinOp
+relation = 
+    (reservedOp "<=" >> return LE) <|>
+    (reservedOp "<" >> return L) <|>
+    (reservedOp ">=" >> return GE) <|>
+    (reservedOp ">" >> return G) <|>
+    (reservedOp "!=" >> return NEq) <|>
+    (reservedOp "==" >> return Eq)
+-}
+
+
+rExpression :: Parser Expr
+rExpression = buildExpressionParser rOperators expression
+
+rOperators = [ [Infix (reservedOp "<" >> return (ERBinOp L)) AssocNone,
+                Infix (reservedOp "<=" >> return (ERBinOp LE)) AssocNone,
+                Infix (reservedOp ">" >> return (ERBinOp G)) AssocNone,
+                Infix (reservedOp ">=" >> return (ERBinOp GE)) AssocNone,
+                Infix (reservedOp "==" >> return (ERBinOp Eq)) AssocNone,
+                Infix (reservedOp "!=" >> return (ERBinOp NEq)) AssocNone]]

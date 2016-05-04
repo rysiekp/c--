@@ -9,8 +9,8 @@ languageDef =
     emptyDef { 
         Token.identStart = letter,
         Token.identLetter = alphaNum,
-        Token.reservedNames = ["if", "else", "while", "var", "def", "print", "main"],
-        Token.reservedOpNames = ["+", "-", "*", "/", "=", "<", ">", "<=", ">=", "&"]
+        Token.reservedNames = ["if", "else", "while", "var", "def", "main", "true", "false", "int", "bool"],
+        Token.reservedOpNames = ["+", "-", "*", "/", "=", "<", ">", "<=", ">=", "&&", "||"]
     }
 
 lexer = Token.makeTokenParser languageDef
@@ -21,6 +21,7 @@ reservedOp = Token.reservedOp lexer
 parens = Token.parens lexer
 braces = Token.braces lexer
 integer = Token.integer lexer
+
 semi = Token.semi lexer
 whiteSpace = Token.whiteSpace lexer
 comma = Token.comma lexer
