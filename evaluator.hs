@@ -1,21 +1,18 @@
 module Evaluator where
+import Text.PrettyPrint.HughesPJClass
 import LanguageStructs
+import TypeChecker
 import Control.Monad
-import Control.Monad.Identity
 import Control.Monad.Except
-import Control.Monad.Reader
 import Control.Monad.State
-import Control.Monad.Writer
 import Data.Map as Map
 import Data.List as List
 import Data.Maybe
 import Data.IORef
 
-type Name = String
 type Scope = Map Name Var
 type Funs = Map Name ([Arg], Statement)
 type Env = (Scope, Funs)
-type Eval a = (StateT Env IO) a
 type IntOp = (Integer -> Integer -> Integer)
 type BoolOp = (Bool -> Bool -> Bool)
 type Var = IORef Val
@@ -26,13 +23,10 @@ data Val
 instance Show Val where
     show (Int' i) = show i
     show (Bool' b) = show b
+type Eval a = ExceptT String (StateT Env IO) a
 
-
-runEval :: Eval a -> Env -> IO a
-runEval ev env = evalStateT ev env
-
-execEval :: Eval a -> Env -> IO Env
-execEval ev env = execStateT ev env
+runEval :: Eval a -> Env -> IO (Either String a)
+runEval ev env = evalStateT (runExceptT ev) env
 
 evalProgram :: Program -> Eval ()
 evalProgram (Program funs main') = do
@@ -57,11 +51,12 @@ evalStmt (SSeq []) = do return ()
 evalStmt (SSeq (s:ss)) = do
     evalStmt s
     evalStmt (SSeq ss)
-evalStmt (SDeclare _ s e) = do
+evalStmt (SDeclare t s e) = do
     val <- evalExpr e
     newVar s val
 evalStmt (SAssign s e) = do
     val <- evalExpr e
+    t <- readVar s
     writeVar s val
 evalStmt (SOpAss s PlusPlus) = evalStmt (SAssign s (EABinOp Plus (EVar s) (EIntLit 1)))
 evalStmt (SOpAss s MinusMinus) = evalStmt (SAssign s (EABinOp Minus (EVar s) (EIntLit 1)))
@@ -78,25 +73,33 @@ evalStmt (SWhile c s) =
             Bool' cond <- evalExpr c
             when cond (evalStmt s >> while)
 evalStmt (SCall "print" args) = do
-    env <- get
-    let arg = evalExpr (head args)
-    x <- lift $ runEval arg env
-    lift $ print x
-    return ()
+    if length args /= 1 then throwError "incorrect argument count in call to function print"
+    else do
+        env <- get
+        let arg = evalExpr (head args)
+        Right x <- liftIO $ runEval arg env
+        liftIO $ print x
+        return ()
 evalStmt (SCall fun args) = do
     env@(vars, funs) <- get
     case Map.lookup fun funs of
-        Nothing -> error $ "function " ++ fun ++ " not defined"
-        Just (fargs, stmt) -> do
-            funVars <- mapM createEnvEntry (zip fargs args)
-            liftIO $ runEval (evalStmt stmt) (fromList funVars, funs)
+        Nothing -> throwError $ "function " ++ fun ++ " not defined"
+        Just (fargs, stmt) ->
+            if length fargs /= length args then
+                throwError $ "incorrect argument count in call to function " ++ fun
+            else do
+                funVars <- mapM createEnvEntry (zip fargs args)
+                oldEnv <- get
+                put (fromList funVars, funs)
+                evalStmt stmt
+                put oldEnv
 
 createEnvEntry :: (Arg, Expr) -> Eval (Name, Var)
 createEnvEntry ((EArg _ False aname), expr) = do
-    env@(vars, funs) <- get
-    e <- liftIO $ runEval (evalExpr expr) env
+    env <- get
+    e <- (evalExpr expr)
     val <- liftIO $ newIORef e
-    return $ (aname, val)
+    return (aname, val)
 createEnvEntry ((EArg _ True aname), (EVar name)) = do
     env <- get
     ref <- readRef name
@@ -118,7 +121,7 @@ evalExpr (ELBinOp op a b) = do
     Bool' b1 <- evalExpr a
     Bool' b2 <- evalExpr b
     return $ Bool' $ op' b1 b2
-evalExpr (ERBinOp op a b) = do
+evalExpr e@(ERBinOp op a b) = do
     let op' = evalRelation op
     x1 <- evalExpr a
     x2 <- evalExpr b

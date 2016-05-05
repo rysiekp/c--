@@ -9,7 +9,7 @@ languageDef =
     emptyDef { 
         Token.identStart = letter,
         Token.identLetter = alphaNum,
-        Token.reservedNames = ["if", "else", "while", "var", "def", "main", "true", "false", "int", "bool"],
+        Token.reservedNames = ["if", "else", "while", "def", "main", "true", "false", "int", "bool"],
         Token.reservedOpNames = ["+", "-", "*", "/",
                                  "=", "<", ">", "<=", ">=", "==",
                                  "&&", "||",
