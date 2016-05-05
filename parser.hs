@@ -62,8 +62,36 @@ statement :: Parser Statement
 statement = ifStatement <|> 
             whileStatement <|> 
             try declareStatement <|>
+            try opAssignStatement <|>
             try assignStatement <|>
             callStatement
+
+opAssignStatement :: Parser Statement
+opAssignStatement =
+    do var <- identifier
+       op <- opAssignment
+       semi
+       return $ SOpAss var op
+
+opAssignment :: Parser AOp
+opAssignment = 
+    try (reservedOp "++" >> return PlusPlus) <|>
+    try (reservedOp "--" >> return MinusMinus) <|>
+    assOp
+     
+
+assOp :: Parser AOp
+assOp = do
+    op <- aOp
+    e <- expression
+    return $ OpAss op e
+
+aOp :: Parser ABinOp
+aOp =
+    (reserved "+=" >> return Plus) <|>
+    (reserved "-=" >> return Minus) <|>
+    (reserved "*=" >> return Times) <|>
+    (reserved "/=" >> return Div)
 
 ifStatement :: Parser Statement
 ifStatement =
@@ -143,25 +171,6 @@ lTerm = try (parens lExpression) <|>
 
 lOperators = [ [Infix (reservedOp "&&" >> return (ELBinOp And)) AssocLeft,
                 Infix (reservedOp "||" >> return (ELBinOp Or)) AssocLeft]]
-
-{-
-rExpression :: Parser Expr
-rExpression =
-    do e1 <- expression
-       op <- relation
-       e2 <- expression
-       return $ ERBinOp op e1 e2
-
-relation :: Parser RBinOp
-relation = 
-    (reservedOp "<=" >> return LE) <|>
-    (reservedOp "<" >> return L) <|>
-    (reservedOp ">=" >> return GE) <|>
-    (reservedOp ">" >> return G) <|>
-    (reservedOp "!=" >> return NEq) <|>
-    (reservedOp "==" >> return Eq)
--}
-
 
 rExpression :: Parser Expr
 rExpression = buildExpressionParser rOperators expression

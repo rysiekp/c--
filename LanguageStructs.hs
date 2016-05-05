@@ -34,6 +34,7 @@ data Statement
     | SWhile Expr Statement
     | SIf Expr Statement (Maybe Statement)
     | SCall String [Expr]
+    | SOpAss String AOp
     deriving Show
 
 instance Pretty Statement where
@@ -47,6 +48,7 @@ instance Pretty Statement where
         text "\n" <> rbrace <+> text "else" <+> lbrace <> text "\n" <> (pPrint s2) <>
         text "\n" <> rbrace <> text "\n"
     pPrint (SCall s e) = text s <> parens (hsep (map (<> comma) (map pPrint e))) <> semi
+    pPrint (SOpAss s op) = text s <+> pPrint op <> semi
 
 
 data Expr
@@ -65,6 +67,16 @@ instance Pretty Expr where
     pPrint (EABinOp op a b) = parens (pPrint a <+> pPrint op <+> pPrint b)
     pPrint (ELBinOp op a b) = parens (pPrint a <+> pPrint op <+> pPrint b)
     pPrint (ERBinOp op a b) = parens (pPrint a <+> pPrint op <+> pPrint b)
+
+data AOp
+    = PlusPlus
+    | MinusMinus
+    | OpAss ABinOp Expr
+    deriving Show
+instance Pretty AOp where
+    pPrint PlusPlus = text "++"
+    pPrint MinusMinus = text "--"
+    pPrint (OpAss op expr) = pPrint op <> text "=" <+> pPrint expr
 
 data ABinOp 
     = Plus

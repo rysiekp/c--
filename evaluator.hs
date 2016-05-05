@@ -6,12 +6,15 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.Map as Map
+import Data.List as List
 import Data.Maybe
 import Data.IORef
 
 type Name = String
-type Scope = [(Name, Var)]
-type Env = ([Scope], [(Name, ([Arg], Statement))])
+type Scope = Map Name Var
+type Funs = Map Name ([Arg], Statement)
+type Env = (Scope, Funs)
 type Eval a = (StateT Env IO) a
 type IntOp = (Integer -> Integer -> Integer)
 type BoolOp = (Bool -> Bool -> Bool)
@@ -34,23 +37,20 @@ execEval ev env = execStateT ev env
 evalProgram :: Program -> Eval ()
 evalProgram (Program funs main') = do
     env <- get
-    let newEnv = foldr mapFunction env funs
+    let newEnv = List.foldr mapFunction env funs
     put newEnv
     evalStmt main'
 
-newScope :: Eval ()
-newScope = do
-    (vars, funs) <- get
-    put ([]:vars, funs)
-
-removeScope :: Eval ()
-removeScope = do
-    (v:vs, funs) <- get
-    put (vs, funs)
-
 mapFunction :: Function -> Env -> Env
-mapFunction (Function name args s) (vars, funs) =
-    (vars, (name, (args, s)):funs)
+mapFunction (Function name args s) (vars, funs) = 
+    (vars, Map.insert name (args, s) funs)
+
+inNewScope :: Eval a -> Eval a
+inNewScope e = do
+    oldEnv <- get
+    ret <- e
+    put oldEnv
+    return ret
 
 evalStmt :: Statement -> Eval ()
 evalStmt (SSeq []) = do return ()
@@ -63,57 +63,39 @@ evalStmt (SDeclare _ s e) = do
 evalStmt (SAssign s e) = do
     val <- evalExpr e
     writeVar s val
+evalStmt (SOpAss s PlusPlus) = evalStmt (SAssign s (EABinOp Plus (EVar s) (EIntLit 1)))
+evalStmt (SOpAss s MinusMinus) = evalStmt (SAssign s (EABinOp Minus (EVar s) (EIntLit 1)))
+evalStmt (SOpAss s (OpAss op e)) = evalStmt (SAssign s (EABinOp op (EVar s) e))
 evalStmt (SIf c ifS elseS) = do
     Bool' cond <- evalExpr c
-    if cond then do
-        newScope
-        evalStmt ifS
-        removeScope
+    if cond then
+        inNewScope $ evalStmt ifS
     else
-        case elseS of
-            Nothing -> return ()
-            Just s -> do
-                newScope
-                evalStmt s
-                removeScope
-evalStmt while@(SWhile _ _) = do
-    newScope
-    whileStmt while
-    removeScope
-evalStmt (SCall "print" args) =
-    if length args /= 1 then
-        error "incorrect argument count" 
-    else do
-        env <- get
-        let arg = evalExpr (head args)
-        x <- lift $ runEval arg env
-        lift $ print x
-        return ()
+        when (isJust elseS) (inNewScope $ evalStmt $ fromJust elseS)
+evalStmt (SWhile c s) =
+    inNewScope $ while where
+        while = do
+            Bool' cond <- evalExpr c
+            when cond (evalStmt s >> while)
+evalStmt (SCall "print" args) = do
+    env <- get
+    let arg = evalExpr (head args)
+    x <- lift $ runEval arg env
+    lift $ print x
+    return ()
 evalStmt (SCall fun args) = do
     env@(vars, funs) <- get
-    case lookup fun funs of
+    case Map.lookup fun funs of
         Nothing -> error $ "function " ++ fun ++ " not defined"
-        Just (fargs, stmt) -> 
-            if length fargs /= length args then
-                error "incorrect argument count"
-            else do
-                funVars <- mapM createEnvEntry (zip fargs args)
-                lift $ runEval (evalStmt stmt) ([funVars], funs)
-
-whileStmt:: Statement -> Eval ()
-whileStmt while@(SWhile c s) = do
-    Bool' cond <- evalExpr c
-    if cond then do
-        evalStmt s
-        whileStmt while
-    else do
-        return ()
+        Just (fargs, stmt) -> do
+            funVars <- mapM createEnvEntry (zip fargs args)
+            liftIO $ runEval (evalStmt stmt) (fromList funVars, funs)
 
 createEnvEntry :: (Arg, Expr) -> Eval (Name, Var)
 createEnvEntry ((EArg _ False aname), expr) = do
     env@(vars, funs) <- get
-    e <- lift $ runEval (evalExpr expr) env
-    val <- lift $ newIORef e
+    e <- liftIO $ runEval (evalExpr expr) env
+    val <- liftIO $ newIORef e
     return $ (aname, val)
 createEnvEntry ((EArg _ True aname), (EVar name)) = do
     env <- get
@@ -144,36 +126,32 @@ evalExpr (ERBinOp op a b) = do
 
 newVar :: Name -> Val -> Eval ()
 newVar name val = do
-    ((v:vs), funs) <- get
-    case lookup name v of
-        Nothing -> do
-            val' <- liftIO $ newIORef val
-            put $ ((((name, val'):v):vs), funs)
-            return ()
-        Just _ -> error $ "variable " ++ name ++ " already bound"
+    (vars, funs) <- get
+    val' <- liftIO $ newIORef val
+    put $ (Map.insert name val' vars, funs)
+    return ()
 
 writeVar :: Name -> Val -> Eval ()
 writeVar name val = do
     (vars, _) <- get
-    let val' = searchScopes vars name
+    let val' = searchScope vars name
     liftIO $ writeIORef  val' val
 
 readRef :: Name -> Eval Var
 readRef var = do
     (vars, _) <- get
-    return $ searchScopes vars var
+    return $ searchScope vars var
 
 readVar :: Name -> Eval Val
 readVar var = do
     (vars, _) <- get
-    lift $ readIORef $ searchScopes vars var
+    liftIO $ readIORef $ searchScope vars var
 
-searchScopes :: [Scope] -> Name -> Var
-searchScopes (s:ss) var =
-    case lookup var s of
+searchScope :: Scope -> Name -> Var
+searchScope s var =
+    case Map.lookup var s of
         Just val -> val
-        Nothing -> searchScopes ss var
-searchScopes [] var = error $ "unbound variable " ++ var
+        Nothing -> error $ "unbound variable " ++ var
 
 evalIntOp :: ABinOp -> IntOp
 evalIntOp Plus = (+)

@@ -10,7 +10,10 @@ languageDef =
         Token.identStart = letter,
         Token.identLetter = alphaNum,
         Token.reservedNames = ["if", "else", "while", "var", "def", "main", "true", "false", "int", "bool"],
-        Token.reservedOpNames = ["+", "-", "*", "/", "=", "<", ">", "<=", ">=", "&&", "||"]
+        Token.reservedOpNames = ["+", "-", "*", "/",
+                                 "=", "<", ">", "<=", ">=", "==",
+                                 "&&", "||",
+                                 "++", "+=", "--", "-=", "*=", "/="]
     }
 
 lexer = Token.makeTokenParser languageDef
