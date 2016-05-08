@@ -21,7 +21,7 @@ instance Pretty Arg where
 data Type
     = TBool
     | TInt
-    deriving Show
+    deriving (Show, Eq)
 
 instance Pretty Type where
     pPrint TBool = text "bool"
@@ -83,7 +83,7 @@ data ABinOp
     | Minus
     | Times
     | Div
-    deriving Show
+    deriving (Show, Eq)
 instance Pretty ABinOp where
     pPrint Plus = text "+"
     pPrint Minus = text "-"

@@ -10,7 +10,7 @@ import Text.PrettyPrint.HughesPJClass
 import Data.Maybe
 
 type Name = String
-type CScope = Map Name Type
+type CScope = Map Name (Type, Bool)
 type CFuns = Map Name [Arg]
 type CEnv = (CScope, CFuns)
 
@@ -41,8 +41,19 @@ checkFunction (Function name args s) = do
 addArgToEnv :: Arg -> Check ()
 addArgToEnv (EArg t _ name) = do
     (vars, funs) <- get
-    put $ (Map.insert name t vars, funs)
+    put $ (Map.insert name (t, False) vars, funs)
     return ()
+
+inNewScope' :: Check a -> Check a
+inNewScope' c = do
+    oldEnv@(vars, funs) <- get
+    put $ (Map.map makeGlobal vars, funs)
+    ret <- c
+    put oldEnv
+    return ret
+
+makeGlobal :: (Type, Bool) -> (Type, Bool)
+makeGlobal (t, _) = (t, True)
 
 checkStmt :: Statement -> Check ()
 checkStmt (SSeq []) = return ()
@@ -52,7 +63,7 @@ checkStmt (SSeq (s:ss)) = do
 checkStmt s@(SDeclare t var e) = do
     rhs <- checkExpr e
     compareTypes rhs t (show $ pPrint s)
-    insertVar var t
+    createVar var t
     return ()
 checkStmt s@(SAssign var e) = do
     lhs <- checkExpr (EVar var)
@@ -62,15 +73,17 @@ checkStmt s@(SAssign var e) = do
 checkStmt (SWhile c s) = do
     ct <- checkExpr c
     compareTypes ct TBool ("while (" ++ (show $ pPrint c) ++ ")")
-    checkStmt s
+    inNewScope' $ checkStmt s
 checkStmt (SIf c ifS elseS) = do
     ct <- checkExpr c
     compareTypes ct TBool ("if (" ++ (show $ pPrint c) ++ ")")
-    checkStmt ifS
+    inNewScope' $ checkStmt ifS
     when (isJust elseS) (checkStmt $ fromJust elseS)
-checkStmt (SCall "print" args) = do
+checkStmt (SCall "print" (a:as)) = do
     (vars, _) <- get
-    checkLengths args [1] "print"
+    checkLengths (a:as) [1] "print"
+    checkExpr a
+    return ()
 checkStmt (SCall fun args) = do
     (vars, funs) <- get
     case Map.lookup fun funs of
@@ -93,7 +106,7 @@ checkStmt s@(SOpAss var _) = do
 checkLengths :: [a] -> [b] -> String -> Check ()
 checkLengths a b fun =
     if length a /= length b then
-        throwError $ "incorrect argument count in function " ++ fun
+        throwError $ "incorrect argument count in call to function " ++ fun
     else return ()
 
 checkRef :: String -> (Arg, Expr) -> Check ()
@@ -105,17 +118,25 @@ checkRef fun ((EArg _ True _), e) =
     throwError $ "cannot pass " ++ (show $ pPrint e) ++ " as reference"
 checkRef _ ((EArg t _ _), e) = return ()
 
-insertVar :: Name -> Type -> Check ()
-insertVar n t = do
+createVar :: Name -> Type -> Check ()
+createVar n t = do
     (vars, funs) <- get
-    put (Map.insert n t vars, funs)
-    return ()
+    case Map.lookup n vars of
+        Just (_, l) -> 
+            if not l then
+                throwError $ "variable " ++ n ++ " already bound"
+            else do
+                put (Map.insert n (t, False) vars, funs)
+                return ()
+        _ -> do
+            put (Map.insert n (t, False) vars, funs)
+            return ()
 
 checkExpr :: Expr -> Check Type
 checkExpr (EVar var) = do
     (vars, _) <- get
     case Map.lookup var vars of
-        Just t -> return t
+        Just (t, _) -> return t
         Nothing -> throwError $ "variable " ++ var ++ " not bound"
 checkExpr (EIntLit _) = return TInt
 checkExpr (EBoolLit _) = return TBool

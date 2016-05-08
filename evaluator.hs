@@ -68,31 +68,24 @@ evalStmt (SIf c ifS elseS) = do
     else
         when (isJust elseS) (inNewScope $ evalStmt $ fromJust elseS)
 evalStmt (SWhile c s) =
-    inNewScope $ while where
+    while where
         while = do
             Bool' cond <- evalExpr c
-            when cond (evalStmt s >> while)
+            when cond (inNewScope (evalStmt s) >> while)
 evalStmt (SCall "print" args) = do
-    if length args /= 1 then throwError "incorrect argument count in call to function print"
-    else do
-        env <- get
-        let arg = evalExpr (head args)
-        Right x <- liftIO $ runEval arg env
-        liftIO $ print x
-        return ()
+    env <- get
+    let arg = evalExpr (head args)
+    Right x <- liftIO $ runEval arg env
+    liftIO $ print x
+    return ()
 evalStmt (SCall fun args) = do
     env@(vars, funs) <- get
-    case Map.lookup fun funs of
-        Nothing -> throwError $ "function " ++ fun ++ " not defined"
-        Just (fargs, stmt) ->
-            if length fargs /= length args then
-                throwError $ "incorrect argument count in call to function " ++ fun
-            else do
-                funVars <- mapM createEnvEntry (zip fargs args)
-                oldEnv <- get
-                put (fromList funVars, funs)
-                evalStmt stmt
-                put oldEnv
+    let Just (fargs, stmt) = Map.lookup fun funs
+    funVars <- mapM createEnvEntry (zip fargs args)
+    oldEnv <- get
+    put (fromList funVars, funs)
+    evalStmt stmt
+    put oldEnv
 
 createEnvEntry :: (Arg, Expr) -> Eval (Name, Var)
 createEnvEntry ((EArg _ False aname), expr) = do
@@ -115,7 +108,10 @@ evalExpr (EABinOp op a b) = do
     let op' = evalIntOp op
     Int' i1 <- evalExpr a
     Int' i2 <- evalExpr b
-    return $ Int' $ op' i1 i2
+    if (op == Div) && (i2 == 0) then
+        throwError "division by zero"
+    else
+        return $ Int' $ op' i1 i2
 evalExpr (ELBinOp op a b) = do
     let op' = evalBoolOp op
     Bool' b1 <- evalExpr a
@@ -138,7 +134,7 @@ writeVar :: Name -> Val -> Eval ()
 writeVar name val = do
     (vars, _) <- get
     let val' = searchScope vars name
-    liftIO $ writeIORef  val' val
+    liftIO $ writeIORef val' val
 
 readRef :: Name -> Eval Var
 readRef var = do
@@ -151,10 +147,7 @@ readVar var = do
     liftIO $ readIORef $ searchScope vars var
 
 searchScope :: Scope -> Name -> Var
-searchScope s var =
-    case Map.lookup var s of
-        Just val -> val
-        Nothing -> error $ "unbound variable " ++ var
+searchScope s var = fromJust $ Map.lookup var s
 
 evalIntOp :: ABinOp -> IntOp
 evalIntOp Plus = (+)

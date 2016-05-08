@@ -1,0 +1,22 @@
+def fibo(int n, int &res) {
+    if (n < 2) {
+        res = n;
+    } else {
+        int p = 0;
+        int pp = 0;
+        fibo(n - 1, p);
+        fibo(n - 2, pp);
+        res = p + pp;
+    }
+}
+
+main {
+    int fib = 10;
+    int cur = 0;
+    while (cur <= fib) {
+        int fib = 0;
+        fibo(cur, fib);
+        print(fib);
+        cur++;
+    }
+}

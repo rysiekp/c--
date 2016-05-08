@@ -1,0 +1,8 @@
+def f(int &i) {
+    i = i * 6 - 7 + 18;
+}
+
+main {
+    int a = 1;
+    g(a);
+}

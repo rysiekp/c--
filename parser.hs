@@ -17,12 +17,10 @@ program =
        return $ Program functions mainF
 
 main' :: Parser Statement
-main' =  
-    do reserved "def"
-       reserved "main"
-       argumentList
-       statements <- block
-       return statements
+main' =
+    do  reserved "main"
+        statements <- block
+        return statements
 
 function :: Parser Function
 function =

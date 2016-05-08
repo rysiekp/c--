@@ -1,0 +1,24 @@
+def isEqual(bool &res, int a, int b) {
+    res = (a == b);
+}
+
+main {
+    int a = 1;
+    int b = 10;
+    bool equal = false;
+    isEqual(equal, a, b);
+    while (equal == false) {
+        a += 2;
+        b++;
+        print(a);
+        print(b);
+        isEqual(equal, a, b);
+    }
+
+    isEqual(equal, 15, 10);
+    if (equal) {
+        print(true);
+    } else {
+        print(false);
+    }
+}

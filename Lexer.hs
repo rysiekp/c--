@@ -28,3 +28,4 @@ integer = Token.integer lexer
 semi = Token.semi lexer
 whiteSpace = Token.whiteSpace lexer
 comma = Token.comma lexer
+colon = Token.colon lexer
