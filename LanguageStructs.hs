@@ -11,7 +11,7 @@ data Function =
     Function String [Arg] Statement
     deriving Show
 instance Pretty Function where
-    pPrint (Function s args stms) = text s <+> parens (hsep (map (<> comma) (map pPrint args))) <+> lbrace <> text "\n" <> (pPrint stms) <> text "\n" <> rbrace <> text "\n"
+    pPrint (Function s args stms) = text s <+> parens (hsep (map ((<> comma) . pPrint) args)) <+> lbrace <> text "\n" <> pPrint stms <> text "\n" <> rbrace <> text "\n"
 
 data Arg = EArg Type Bool String 
     deriving Show
@@ -41,13 +41,13 @@ instance Pretty Statement where
     pPrint (SSeq stms) = vcat (map pPrint stms)
     pPrint (SDeclare t s e) = pPrint t <+> text s <+> text "=" <+> pPrint e <> semi
     pPrint (SAssign s e) = text s <+> text "=" <+> pPrint e <> semi
-    pPrint (SWhile l s) = text "while" <+> parens (pPrint l) <+> lbrace <> text "\n" <> (pPrint s) <> text "\n" <> rbrace <> text "\n"
-    pPrint (SIf l s Nothing) = text "if" <+> parens (pPrint l) <+> lbrace <> text "\n" <> (pPrint s) <> text "\n" <> rbrace
+    pPrint (SWhile l s) = text "while" <+> parens (pPrint l) <+> lbrace <> text "\n" <> pPrint s <> text "\n" <> rbrace <> text "\n"
+    pPrint (SIf l s Nothing) = text "if" <+> parens (pPrint l) <+> lbrace <> text "\n" <> pPrint s <> text "\n" <> rbrace
     pPrint (SIf l s1 (Just s2)) = 
-        text "if" <+> parens (pPrint l) <+> lbrace <> text "\n" <> (pPrint s1) <>
-        text "\n" <> rbrace <+> text "else" <+> lbrace <> text "\n" <> (pPrint s2) <>
+        text "if" <+> parens (pPrint l) <+> lbrace <> text "\n" <> pPrint s1 <>
+        text "\n" <> rbrace <+> text "else" <+> lbrace <> text "\n" <> pPrint s2 <>
         text "\n" <> rbrace <> text "\n"
-    pPrint (SCall s e) = text s <> parens (hsep (map (<> comma) (map pPrint e))) <> semi
+    pPrint (SCall s e) = text s <> parens (hsep (map ((<> comma) . pPrint) e)) <> semi
     pPrint (SOpAss s op) = text s <+> pPrint op <> semi
 
 

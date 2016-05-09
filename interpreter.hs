@@ -3,13 +3,8 @@ import System.Environment
 import Parser
 import Evaluator
 import TypeChecker
-import Control.Monad
 import Text.ParserCombinators.Parsec
-import Text.PrettyPrint.HughesPJClass
 import Data.Map as Map
-
-instance Pretty ParseError where
-    pPrint _ = text "ERROR"
 
 main :: IO ()
 main = do

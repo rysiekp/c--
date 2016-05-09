@@ -1,5 +1,4 @@
 module Evaluator where
-import Text.PrettyPrint.HughesPJClass
 import LanguageStructs
 import TypeChecker
 import Control.Monad
@@ -26,7 +25,7 @@ instance Show Val where
 type Eval a = ExceptT String (StateT Env IO) a
 
 runEval :: Eval a -> Env -> IO (Either String a)
-runEval ev env = evalStateT (runExceptT ev) env
+runEval ev = evalStateT (runExceptT ev)
 
 evalProgram :: Program -> Eval ()
 evalProgram (Program funs main') = do
@@ -47,16 +46,15 @@ inNewScope e = do
     return ret
 
 evalStmt :: Statement -> Eval ()
-evalStmt (SSeq []) = do return ()
+evalStmt (SSeq []) = return ()
 evalStmt (SSeq (s:ss)) = do
     evalStmt s
     evalStmt (SSeq ss)
-evalStmt (SDeclare t s e) = do
+evalStmt (SDeclare _ s e) = do
     val <- evalExpr e
     newVar s val
 evalStmt (SAssign s e) = do
     val <- evalExpr e
-    t <- readVar s
     writeVar s val
 evalStmt (SOpAss s PlusPlus) = evalStmt (SAssign s (EABinOp Plus (EVar s) (EIntLit 1)))
 evalStmt (SOpAss s MinusMinus) = evalStmt (SAssign s (EABinOp Minus (EVar s) (EIntLit 1)))
@@ -79,7 +77,7 @@ evalStmt (SCall "print" args) = do
     liftIO $ print x
     return ()
 evalStmt (SCall fun args) = do
-    env@(vars, funs) <- get
+    (_, funs) <- get
     let Just (fargs, stmt) = Map.lookup fun funs
     funVars <- mapM createEnvEntry (zip fargs args)
     oldEnv <- get
@@ -88,22 +86,19 @@ evalStmt (SCall fun args) = do
     put oldEnv
 
 createEnvEntry :: (Arg, Expr) -> Eval (Name, Var)
-createEnvEntry ((EArg _ False aname), expr) = do
-    env <- get
-    e <- (evalExpr expr)
+createEnvEntry (EArg _ False aname, expr) = do
+    e <- evalExpr expr
     val <- liftIO $ newIORef e
     return (aname, val)
-createEnvEntry ((EArg _ True aname), (EVar name)) = do
-    env <- get
+createEnvEntry (EArg _ True aname, EVar name) = do
     ref <- readRef name
     return (aname, ref)
+createEnvEntry _ = undefined
 
 evalExpr :: Expr -> Eval Val
 evalExpr (EIntLit i) = return $ Int' i
 evalExpr (EBoolLit b) = return $ Bool' b
-evalExpr (EVar var) = do 
-    v <- readVar var
-    return v
+evalExpr (EVar var) = readVar var
 evalExpr (EABinOp op a b) = do
     let op' = evalIntOp op
     Int' i1 <- evalExpr a
@@ -117,7 +112,7 @@ evalExpr (ELBinOp op a b) = do
     Bool' b1 <- evalExpr a
     Bool' b2 <- evalExpr b
     return $ Bool' $ op' b1 b2
-evalExpr e@(ERBinOp op a b) = do
+evalExpr (ERBinOp op a b) = do
     let op' = evalRelation op
     x1 <- evalExpr a
     x2 <- evalExpr b
@@ -127,7 +122,7 @@ newVar :: Name -> Val -> Eval ()
 newVar name val = do
     (vars, funs) <- get
     val' <- liftIO $ newIORef val
-    put $ (Map.insert name val' vars, funs)
+    put (Map.insert name val' vars, funs)
     return ()
 
 writeVar :: Name -> Val -> Eval ()

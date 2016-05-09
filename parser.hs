@@ -3,24 +3,22 @@ import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
 import LanguageStructs
 import Lexer
-import System.Environment
-import Control.Monad
-import Control.Applicative ((<*))
+import Data.Functor.Identity
+import Text.Parsec.Prim hiding (try)
 
 pascalParser :: Parser Program
 pascalParser = whiteSpace >> program
 
 program :: Parser Program
 program =
-    do functions <- (many (try function))
+    do functions <- many (try function)
        mainF <- main' <* eof
        return $ Program functions mainF
 
 main' :: Parser Statement
 main' =
     do  reserved "main"
-        statements <- block
-        return statements
+        block
 
 function :: Parser Function
 function =
@@ -36,24 +34,24 @@ argumentList = parens (sepBy argument comma)
 
 argument :: Parser Arg
 argument = 
-    do  t <- typeP
-        ref <- refP
-        id <- identifier
-        return $ EArg t ref id
+    do  t <- typeLit
+        isRef <- ref
+        var <- identifier
+        return $ EArg t isRef var
 
-typeP :: Parser Type
-typeP = 
+typeLit :: Parser Type
+typeLit = 
     (reserved "int" >> return TInt) <|> (reserved "bool" >> return TBool)
 
-refP :: Parser Bool
-refP = try (reservedOp "&" >> return True) <|> return False
+ref :: Parser Bool
+ref = try (reservedOp "&" >> return True) <|> return False
 
 block :: Parser Statement
 block = braces sequenceOfStatement
  
 sequenceOfStatement :: Parser Statement
 sequenceOfStatement =
-  do list <- (many1 statement)
+  do list <- many1 statement
      return $ if length list == 1 then head list else SSeq list
 
 statement :: Parser Statement
@@ -68,7 +66,7 @@ opAssignStatement :: Parser Statement
 opAssignStatement =
     do var <- identifier
        op <- opAssignment
-       semi
+       _ <- semi
        return $ SOpAss var op
 
 opAssignment :: Parser AOp
@@ -120,16 +118,13 @@ assignStatement =
     do var <- identifier
        reservedOp "="
        expr <- expression
-       semi
+       _ <- semi
        return $ SAssign var expr
  
 declareStatement :: Parser Statement
 declareStatement =
   do t <- decType
-     var <- identifier
-     reservedOp "="
-     expr <- expression
-     semi
+     (SAssign var expr) <- assignStatement
      return $ SDeclare t var expr
 
 decType :: Parser Type
@@ -137,10 +132,10 @@ decType = (reserved "int" >> return TInt) <|> (reserved "bool" >> return TBool)
 
 callStatement :: Parser Statement
 callStatement =
-    do id <- identifier
+    do name <- identifier
        params <- parameterList
-       semi
-       return $ SCall id params
+       _ <- semi
+       return $ SCall name params
 
 parameterList :: Parser [Expr]
 parameterList = parens (sepBy expression comma)
@@ -151,28 +146,33 @@ expression = try aExpression <|> lExpression
 aExpression :: Parser Expr
 aExpression = buildExpressionParser aOperators aTerm
 
+aOperators :: [[Operator Char st Expr]]
 aOperators = [ [Infix (reservedOp "*" >> return (EABinOp Times)) AssocLeft,
                 Infix (reservedOp "/" >> return (EABinOp Div)) AssocLeft],
                [Infix (reservedOp "+" >> return (EABinOp Plus)) AssocLeft,
                 Infix (reservedOp "-" >> return (EABinOp Minus)) AssocLeft]]
 
-aTerm =  parens aExpression <|> liftM EIntLit integer <|> liftM EVar identifier
+aTerm :: Text.Parsec.Prim.ParsecT String () Data.Functor.Identity.Identity Expr
+aTerm =  parens aExpression <|> fmap EIntLit integer <|> fmap EVar identifier
 
 lExpression :: Parser Expr
 lExpression = buildExpressionParser lOperators lTerm
 
+lTerm :: Text.Parsec.Prim.ParsecT String () Data.Functor.Identity.Identity Expr
 lTerm = try (parens lExpression) <|>
         (reserved "true" >> return (EBoolLit True)) <|>
         (reserved "false" >> return (EBoolLit False)) <|>
-        liftM EVar identifier <|>
+        fmap EVar identifier <|>
         parens rExpression
 
+lOperators :: [[Operator Char st Expr]]
 lOperators = [ [Infix (reservedOp "&&" >> return (ELBinOp And)) AssocLeft,
                 Infix (reservedOp "||" >> return (ELBinOp Or)) AssocLeft]]
 
 rExpression :: Parser Expr
 rExpression = buildExpressionParser rOperators expression
 
+rOperators :: [[Operator Char st Expr]]
 rOperators = [ [Infix (reservedOp "<" >> return (ERBinOp L)) AssocNone,
                 Infix (reservedOp "<=" >> return (ERBinOp LE)) AssocNone,
                 Infix (reservedOp ">" >> return (ERBinOp G)) AssocNone,
